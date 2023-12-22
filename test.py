@@ -2,7 +2,7 @@ from main import *
 
 
 model = DistanceRecommender(
-    vectorizer=InfloatVectorizer(),
+    vectorizer=TransformerVectorizer(),
     simularity_func=cosine_similarity,
     text_prep_func=string_filter_emb
 )

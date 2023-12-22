@@ -167,6 +167,4 @@ cython_debug/
 #.idea/
 
 __pycache__
-tables
-dealer_emb
-second_model.ipynb
+rubert_prosept

@@ -5,22 +5,18 @@ import os
 import numpy as np
 import pandas as pd
 import torch
-import torch.nn.functional as F
+from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
-from transformers import AutoModel, AutoTokenizer
+from num2words import num2words
 
-def check_vectorizer_files(dirs=['./tokenizer/', './vectorizer/']):
 
-    if not os.path.exists(dirs[0]):
-        os.makedirs(dirs[0])
-        tokenizer = AutoTokenizer.from_pretrained('intfloat/multilingual-e5-large')
-        tokenizer.save_pretrained(dirs[0])
-        
-        
-    if not os.path.exists(dirs[1]):
-        os.makedirs(dirs[1])
-        vectorizer = AutoModel.from_pretrained('intfloat/multilingual-e5-large')
-        vectorizer.save_pretrained(dirs[1])
+def check_vectorizer_files(dir='rubert_prosept'):
+
+    if not os.path.exists(dir):
+        os.makedirs(dir[0])
+        bert = SentenceTransformer('micoff/rubert-tiny2-tuned-for-prosept')
+        bert.save('rubert_prosept')
+    pass   
 
 
 class NumpyEncoder(json.JSONEncoder):
@@ -61,13 +57,13 @@ def replace_values(string):
             value = t.replace('л', '')
             if value.replace(',', '.').replace('.', '').isdigit():
                 value = float(value.replace(',', '.')) * 1000
-                t = f'{int(value)} мл'
+                t = f'{int(value)} миллилитров'
                 res += [t]
                 continue
 
             elif splitted[i - 1].replace(',', '.').replace('.', '').isdigit() and not 'мл' in t:
                 value = float(splitted[i - 1].replace(',', '.')) * 1000
-                t = f'{int(value)} мл'
+                t = f'{int(value)} миллилитров'
                 res = res[:-1]
                 res += [t]
                 continue
@@ -77,13 +73,13 @@ def replace_values(string):
             value = t.replace('кг', '')
             if value.replace(',', '.').replace('.', '').isdigit():
                 value = float(value.replace(',', '.')) * 1000
-                t = f'{int(value)} г'
+                t = f'{int(value)} граммов'
                 res += [t]
                 continue
 
             elif splitted[i - 1].replace(',', '.').replace('.', '').isdigit():
                 value = float(splitted[i - 1].replace(',', '.')) * 1000
-                t = f'{int(value)} г'
+                t = f'{int(value)} граммов'
                 res = res[:-1]
                 res += [t]
                 continue
@@ -93,6 +89,14 @@ def replace_values(string):
         res += [t]
     return ' '.join(res)
 
+def num_too_words(x):
+    total = []
+    for t in x.split():
+        if t.isdigit():
+            total += [num2words(t, lang='ru')]
+        else:
+            total += [t]
+    return ' '.join(total)
 
 def string_filter_emb(string):
     
@@ -104,42 +108,27 @@ def string_filter_emb(string):
     string = re.sub(r'[^a-zo0-9а-я\s:]', ' ', string)
     string = re.sub(r'(?<=[а-я])(?=[a-z])|(?<=[a-z])(?=[а-я])', ' ', string)
     string = re.sub(r'(?<=[а-яa-z])(?=\d)|(?<=\d)(?=[а-яa-z])', ' ', string)
-    
+
     string = string.replace(' 0 ', ' ')
-    string = ' '.join([w for w in string.split()])
+    string = string.replace('ф п', 'фп')
+    string = num_too_words(string)
     return string
 
 
-class InfloatVectorizer():
-    def __init__(self,
-                 toc_path='./tokenizer/',
-                 vec_path='./vectorizer/'):
+class TransformerVectorizer():
+    
+    def __init__(self):
         
-        check_vectorizer_files(dirs=[toc_path, vec_path])
+        check_vectorizer_files()
+        self.transformer = SentenceTransformer('rubert_prosept')
 
-        self.tokenizer = AutoTokenizer.from_pretrained(toc_path)
-        self.model = AutoModel.from_pretrained(vec_path)
-
-    def fit(self, X=None):
+        
+    def fit(self):
         pass
-
+    
     def transform(self, corpus):
-        batch_dict = self.tokenizer(
-            corpus,
-            max_length=512,
-            padding=True,
-            truncation=True,
-            return_tensors='pt'
-        )
-        with torch.no_grad():
-            outputs = self.model(**batch_dict)
-        last_hidden = outputs.last_hidden_state.masked_fill(
-            ~batch_dict['attention_mask'][..., None].bool(), 0.0
-        )
-        embeddings = (last_hidden.sum(dim=1)
-                      / batch_dict['attention_mask'].sum(dim=1)[..., None])
-        embeddings = F.normalize(embeddings, p=2, dim=1)
-        return embeddings.numpy()
+        embeddings = self.transformer.encode(corpus) 
+        return embeddings
 
 
 class DistanceRecommender():
@@ -161,7 +150,7 @@ class DistanceRecommender():
                 self.preprocessing
             ).values.tolist()
         )
-        self.vectorizer.fit(preprocessed_corpus)
+
         self.product_matrix = self.vectorizer.transform(preprocessed_corpus)
         self.product_index_to_id = {str(i): product_corpus.loc[i, id_column] for i in range(len(product_corpus))}
         if save_to_dir:
